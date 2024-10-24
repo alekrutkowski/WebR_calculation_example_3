@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebR Excel Processor</title>
+  <script src="https://webr.r-wasm.org/latest/webr.mjs" type="module"></script>
+  <style>
+    #spinner {
+      display: none;
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 2s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <h1>Upload and Process Excel File with WebR</h1>
+  <input type="file" id="fileInput" accept=".xlsx" />
+  <button id="processButton">Process and Export</button>
+  <p id="link-container"></p>
+  <div id="spinner"></div>
+
+  <script type="module">
+    import { WebR } from 'https://webr.r-wasm.org/latest/webr.mjs';
+
+    const webr = new WebR();
+    await webr.init();
+    await webr.installPackages(['openxlsx2']);
+
+    document.getElementById("processButton").addEventListener("click", async () => {
+      const fileInput = document.getElementById("fileInput");
+      if (!fileInput.files.length) {
+        alert("Please upload an Excel file.");
+        return;
+      }
+
+      // Show spinner
+      const spinner = document.getElementById("spinner");
+      spinner.style.display = "block";
+
+      const file = fileInput.files[0];
+      const arrayBuffer = await file.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+
+      // Load the uploaded file into WebR
+      await webr.FS.writeFile("input.xlsx", uint8Array);
+
+      // Run R script to process the file with openxlsx2
+      const rCode = `
+        library(openxlsx2)
+        wb <- wb_load("/home/web_user/input.xlsx")
+        wb <- wb_add_worksheet(wb, sheet="Summary")
+		wb <- wb_add_data(wb, sheet="Summary", x=data.frame(Info="Processed with WebR"))
+        wb_save(wb, "/home/web_user/output.xlsx", overwrite = TRUE)
+      `;
+      await webr.evalR(rCode);
+
+      // Obtain the contents of the file from the VFS
+      const xlsxdata = await webr.FS.readFile('/home/web_user/output.xlsx');
+
+      // Create a link for the user to download the file contents
+      const blob = new Blob([xlsxdata], { type: 'application/octet-stream' });
+      const link = document.createElement('a');
+      link.download = 'output.xlsx';
+      link.href = URL.createObjectURL(blob);
+      link.textContent = 'Click to download the Excel output file';
+      document.getElementById('link-container').appendChild(link);
+
+      // Hide spinner
+      spinner.style.display = "none";
+    });
+  </script>
+</body>
+</html>
